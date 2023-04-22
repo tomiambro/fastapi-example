@@ -1,0 +1,78 @@
+version: '3.4'
+
+x-fastapi-envs: &fastapi_envs
+  environment:
+    - PROJECT_NAME=fastapi_example
+    - NGINX_HOST=api-staging.fastapiexample.com
+    - ENV=staging
+    - POSTGRES_USER=fastapiexample
+    - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    - POSTGRES_HOST=fastapi_example_db
+    - POSTGRES_DB=fastapiexample
+    - POSTGRES_PORT=5432
+    - VERSION=v1
+
+x-default_deploy: &default_deploy
+  deploy:
+    mode: replicated
+    replicas: 1
+    restart_policy:
+      condition: on-failure
+      delay: 20s
+      max_attempts: 6
+      window: 120s
+    update_config:
+      parallelism: 1
+      order: start-first
+
+volumes:
+  data-vol:
+  fastapi_example_dbdata-vol:
+  fastapi_example_nginxdata-vol:
+
+services:
+  fastapi_example_db:
+    image: postgres:15-alpine
+    environment:
+    labels:
+      com.fastapiexample.container.name: fastapiexample-fastapi_example_db
+      com.fastapiexample.env: staging
+      com.fastapiexample.project: fastapiexample-cloud
+    volumes:
+      - fastapi_example_dbdata-vol:/var/lib/postgresql/data/
+    <<: [*fastapi_envs, *default_deploy]
+
+  fastapi_example_nginx:
+    image: ${REGISTRY}/fastapi_example_nginx:${GITHUB_SHA}
+    environment:
+      - UPSTREAMS=/:fastapi_example_backend:8000
+      - NGINX_SERVER_NAME=api-staging.fastapiexample.com # without this, /admin redirects to https://_/
+      - ENABLE_SSL=true
+      - HTTPS_REDIRECT=true
+      - CERTBOT_EMAIL=tomas.h.ambrogi@gmail.com
+      - DOMAIN_LIST=api-staging.fastapiexample.com
+
+    labels:
+      com.fastapiexample.container.name: fastapiexample-fastapi_example_nginx
+      com.fastapiexample.env: staging
+      com.fastapiexample.project: fastapiexample-cloud
+    ports:
+      - '0.0.0.0:80:80'
+      - '0.0.0.0:443:443'
+    volumes:
+      - fastapi_example_nginxdata-vol:/etc/letsencrypt
+    <<: *default_deploy
+
+  fastapi_example_backend:
+    image: ${REGISTRY}/fastapi_example_backend:${GITHUB_SHA}
+    environment:
+    labels:
+      com.fastapiexample.container.name: fastapiexample-fastapi_example_backend
+      com.fastapiexample.env: staging
+      com.fastapiexample.project: fastapiexample-cloud
+    <<: [*fastapi_envs, *default_deploy]
+    volumes:
+      - data-vol:/data
+    command: bash -c "
+      alembic upgrade head &&
+      gunicorn src.main:app --workers 2 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --log-level=info --timeout=120"

@@ -1,0 +1,62 @@
+version: '3'
+
+volumes:
+  base-data:
+  fastapi_example_db-data:
+  fastapi_example_nginx-data:
+  redis-data:
+
+services:
+  fastapi_example_db:
+    image: postgres:15-alpine
+    env_file:
+      - .envs/.local/.postgres
+    restart: always
+    ports:
+      - '5431:5432'
+    volumes:
+      - fastapi_example_db-data:/var/lib/postgresql/data
+
+  fastapi_example_backend:
+    restart: always
+    env_file:
+      - .envs/.local/.django
+      - .envs/.local/.postgres
+    build:
+      context: ./fastapi_example_backend
+      dockerfile: ./Dockerfile
+    ports:
+      - "8666:8000"
+    command: |
+        bash -c "
+        while !</dev/tcp/fastapi_example_db/5432; do sleep 1; done;
+        gunicorn src.main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --log-level=debug --timeout=60 --reload"
+    depends_on:
+      - fastapi_example_db
+    environment:
+      - PYTHONUNBUFFERED=0
+    volumes:
+      - base-data:/data
+      - ./fastapi_example_backend/:/code
+
+  fastapi_example_nginx:
+    restart: always
+    ports:
+      - "0.0.0.0:80:80"
+    env_file:
+      - .envs/.local/.nginx
+    depends_on:
+      - fastapi_example_backend
+    build:
+      context: ./fastapi_example_nginx
+      dockerfile: ./Dockerfile
+    volumes:
+        - fastapi_example_nginx-data:/etc/letsencrypt
+
+  redis:
+    restart: always
+    image: redis:latest
+    ports:
+      - "6479:6379"
+    volumes:
+      - redis-data:/data

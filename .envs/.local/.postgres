@@ -1,0 +1,6 @@
+# Database
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_DB=fastapiexample
+POSTGRES_HOST=fastapi_example_db
+POSTGRES_PORT=5432
